@@ -8,33 +8,34 @@ from datetime import date
 class DailySudokuWidget:
     def __init__(self, root):
         self.root = root
-        self.root.title("Daily Sudoku Widget")
-        self.root.geometry("400x500")
-        self.root.attributes("-topmost", True)  # Keep as a widget on top
+        self.root.title("Daily Sudoku")
+        self.root.attributes("-topmost", True)
+        self.root.configure(bg="#1e1e1e")
         
         self.cache_file = "sudoku_cache.json"
-        self.cells = {} # Dictionary to store Entry widgets
-        self.board = [] # Current state
-        self.original_puzzle = [] # The starting board for the day
+        self.cells = {}
+        self.board = []
+        self.original_puzzle = []
         
-        self.setup_daily_puzzle()
+        # 1. Generate or load the puzzle data first
+        self.load_or_generate_data()
+        
+        # 2. Build the visual grid (this populates self.cells)
         self.create_grid()
+        
+        # 3. Add buttons
         self.create_controls()
+        
+        # Position window on right side
+        screen_width = self.root.winfo_screenwidth()
+        self.root.geometry(f"360x480+{screen_width - 400}+50")
 
     def get_seed(self):
-        """Generates a unique integer seed based on the current date."""
         return int(date.today().strftime("%Y%m%d"))
 
     def generate_puzzle(self):
-        """
-        Generates a valid (but simple) Sudoku for the day.
-        Real Sudoku generation is complex; here we use a seeded shuffle 
-        of a base pattern to ensure a new valid puzzle every day.
-        """
         random.seed(self.get_seed())
-        base = 3
-        side = base * base
-
+        base, side = 3, 9
         def pattern(r, c): return (base * (r % base) + r // base + c) % side
         def shuffle(s): return random.sample(s, len(s))
         
@@ -43,128 +44,116 @@ class DailySudokuWidget:
         cols = [g * base + c for g in shuffle(r_base) for c in shuffle(r_base)]
         nums = shuffle(range(1, side + 1))
 
-        # Produce board using randomized pattern
         board = [[nums[pattern(r, c)] for c in cols] for r in rows]
-        
-        # Remove numbers to create the puzzle (Difficulty adjustment)
-        squares = side * side
-        empties = squares * 3 // 4
-        for p in random.sample(range(squares), empties):
+        # Remove roughly 75% of numbers
+        for p in random.sample(range(side*side), int(side*side * 0.7)):
             board[p // side][p % side] = 0
-            
         return board
 
-    def setup_daily_puzzle(self):
-        """Loads from cache or generates a new one if it's a new day."""
+    def load_or_generate_data(self):
+        """Loads data from file or creates a fresh daily board."""
         new_puzzle = self.generate_puzzle()
         today_str = str(date.today())
 
         if os.path.exists(self.cache_file):
-            with open(self.cache_file, 'r') as f:
-                data = json.load(f)
-                # If cache is from today, load it
-                if data.get("date") == today_str:
-                    self.board = data.get("current_state")
-                    self.original_puzzle = data.get("original")
-                    return
+            try:
+                with open(self.cache_file, 'r') as f:
+                    data = json.load(f)
+                    if data.get("date") == today_str:
+                        self.board = data.get("current_state")
+                        self.original_puzzle = data.get("original")
+                        return
+            except Exception:
+                pass # If file is broken, just generate new
 
-        # If no cache or old cache, start fresh
         self.board = [row[:] for row in new_puzzle]
         self.original_puzzle = [row[:] for row in new_puzzle]
-        self.save_cache()
 
     def save_cache(self):
-        """Saves current board state to JSON."""
-        # Update board data from entries before saving
+        """Saves current entries to the JSON file."""
+        # Update our internal board list from the UI entries
+        current_state = []
         for r in range(9):
+            row_data = []
             for c in range(9):
                 val = self.cells[(r, c)].get()
-                self.board[r][c] = int(val) if val.isdigit() else 0
+                row_data.append(int(val) if val.isdigit() else 0)
+            current_state.append(row_data)
 
         data = {
             "date": str(date.today()),
             "original": self.original_puzzle,
-            "current_state": self.board
+            "current_state": current_state
         }
         with open(self.cache_file, 'w') as f:
             json.dump(data, f)
+        print("Progress saved!")
 
     def create_grid(self):
-        """Creates the 9x9 GUI grid."""
-        container = tk.Frame(self.root, bg="black", bd=2)
-        container.pack(pady=20, padx=20)
+        main_frame = tk.Frame(self.root, bg="#333333", padx=5, pady=5)
+        main_frame.pack(pady=10)
 
         for r in range(9):
             for c in range(9):
-                # Add thicker borders for 3x3 subgrids
-                padx = (1, 1) if (c + 1) % 3 != 0 else (1, 3)
-                pady = (1, 1) if (r + 1) % 3 != 0 else (1, 3)
+                is_orig = self.original_puzzle[r][c] != 0
+                val = self.board[r][c]
                 
-                cell_val = self.board[r][c]
-                is_original = self.original_puzzle[r][c] != 0
+                # Thick borders for 3x3 blocks
+                px = (1, 1) if (c + 1) % 3 != 0 else (1, 4)
+                py = (1, 1) if (r + 1) % 3 != 0 else (1, 4)
                 
-                entry = tk.Entry(container, width=2, font=('Arial', 18), 
-                                 justify='center', bd=1)
-                entry.grid(row=r, column=c, padx=padx, pady=pady)
+                entry = tk.Entry(main_frame, width=2, font=('Consolas', 18, 'bold'), 
+                                 justify='center', bd=0, bg="#2d2d2d", fg="#ffffff")
+                entry.grid(row=r, column=c, padx=px, pady=py)
                 
-                if cell_val != 0:
-                    entry.insert(0, str(cell_val))
+                if val != 0:
+                    entry.insert(0, str(val))
                 
-                if is_original:
-                    entry.config(state='readonly', readonlybackground='#e0e0e0')
+                if is_orig:
+                    entry.config(state='readonly', readonlybackground='#444444', fg="#00ffcc")
                 
                 self.cells[(r, c)] = entry
 
-    def solve_logic(self, board):
-        """Standard Backtracking Algorithm."""
-        for r in range(9):
-            for c in range(9):
-                if board[r][c] == 0:
-                    for n in range(1, 10):
-                        if self.is_valid(board, r, c, n):
-                            board[r][c] = n
-                            if self.solve_logic(board):
-                                return True
-                            board[r][c] = 0
-                    return False
-        return True
+    def create_controls(self):
+        btn_frame = tk.Frame(self.root, bg="#1e1e1e")
+        btn_frame.pack(fill='x', padx=20)
 
-    def is_valid(self, board, r, c, n):
-        # Check row
-        if n in board[r]: return False
-        # Check col
-        if n in [board[i][c] for i in range(9)]: return False
-        # Check 3x3 box
-        sr, sc = (r // 3) * 3, (c // 3) * 3
-        for i in range(sr, sr + 3):
-            for j in range(sc, sc + 3):
-                if board[i][j] == n: return False
-        return True
+        style = {"bg": "#007acc", "fg": "white", "font": ("Arial", 10, "bold"), "bd": 0, "pady": 5}
+        
+        tk.Button(btn_frame, text="SAVE", command=self.save_cache, **style).pack(side='left', expand=True, fill='x', padx=2)
+        tk.Button(btn_frame, text="SOLVE", command=self.handle_solve, **style).pack(side='left', expand=True, fill='x', padx=2)
 
     def handle_solve(self):
-        """Triggered by the Solve button."""
-        # Work on a copy of the original to find the solution
         solution = [row[:] for row in self.original_puzzle]
-        if self.solve_logic(solution):
+        if self.solve_backtrack(solution):
             for r in range(9):
                 for c in range(9):
                     if self.original_puzzle[r][c] == 0:
                         self.cells[(r, c)].delete(0, tk.END)
                         self.cells[(r, c)].insert(0, str(solution[r][c]))
-                        self.cells[(r, c)].config(fg="blue")
+                        self.cells[(r, c)].config(fg="#ffcc00")
             self.save_cache()
-        else:
-            messagebox.showerror("Error", "No solution exists for this puzzle.")
 
-    def create_controls(self):
-        btn_frame = tk.Frame(self.root)
-        btn_frame.pack(fill='x', padx=20)
+    def solve_backtrack(self, b):
+        for r in range(9):
+            for c in range(9):
+                if b[r][c] == 0:
+                    for n in range(1, 10):
+                        if self.is_valid(b, r, c, n):
+                            b[r][c] = n
+                            if self.solve_backtrack(b): return True
+                            b[r][c] = 0
+                    return False
+        return True
 
-        save_btn = tk.Button(btn_frame, text="Save Progress", command=self.save_cache)
-        save_btn.pack(side='left', expand=True, fill='x', padx=5)
-
-        solve_btn = tk.Button(btn_frame, text="Solve Daily", command=self.handle_solve)
-        solve_btn.pack(side='left', expand=True, fill='x', padx=5)
+    def is_valid(self, b, r, c, n):
+        for i in range(9):
+            if b[r][i] == n or b[i][c] == n: return False
+        sr, sc = (r//3)*3, (c//3)*3
+        for i in range(sr, sr+3):
+            for j in range(sc, sc+3):
+                if b[i][j] == n: return False
+        return True
 
 if __name__ == "__main__":
     root = tk.Tk()
